@@ -15,7 +15,7 @@
 | `10-requirements.md` | `product` | продукт, разработчики | проблема, сценарии, требования, границы | `templates/requirements.md` |
 | `11-workflow.md` | `low_code` | сопровождение | логика сценариев по нодам | `templates/workflow.md` |
 | `12-prompt-guide.md` | `llm` | разработчики, промпт-инженеры | библиотека промптов с параметрами и ограничениями | `templates/prompt-guide.md` |
-| `13-model-usage.md` | `llm` и не `own_model` | разработчики | какие модели через API, параметры, стоимость | `templates/model-usage.md` |
+| `13-model-usage.md` | `model_api` или `local_model` | разработчики | используемые готовые модели, API или локальный запуск, параметры, стоимость | `templates/model-usage.md` |
 | `14-model-card.md` | `own_model` | разработчики, ML | карточка собственной модели | `templates/model-card.md` |
 | `15-data-card.md` | `own_data` | разработчики, ML | карточка данных и базы знаний | `templates/data-card.md` |
 | `16-metrics.md` | `metrics`, `llm` или `own_model` | продукт, сопровождение | метрики успеха, оценка, мониторинг | `templates/metrics.md` |

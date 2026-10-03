@@ -16,12 +16,14 @@
 ## Флаги
 
 - `llm`: зависимости `openai`, `anthropic`, `@anthropic-ai/sdk`, `langchain*`, `llama-index`, `litellm`, `ollama`, `google-generativeai`, `mistralai`. Ноды n8n `@n8n/n8n-nodes-langchain.*`, `n8n-nodes-base.openAi`. Модули OpenAI или Anthropic в Make. Папки и файлы `prompts/`, `*.prompt`, `*.prompt.md`. Строковые системные промпты в коде.
-- `own_model`: скрипты обучения (`train*.py`, `Trainer`, `.fit(`), веса `*.pt`, `*.pth`, `*.safetensors`, `*.onnx`, `*.h5`, `*.joblib`. `mlflow`, `wandb` в зависимостях. Задания fine-tuning.
+- `model_api`: код или ноды вызывают API модели (внешний провайдер или отдельный сервер инференса). Зависимость SDK без вызова — повод проверить точку входа, а не доказательство. Может сочетаться с `own_model` и `local_model`.
+- `local_model`: проект запускает готовую модель локально: загрузка весов для инференса, локальный Ollama или аналогичный runtime. Наличие файла весов без использования — только подсказка. Если Ollama работает на другом сервере, описывать адрес и вызовы по фактической конфигурации.
+- `own_model`: исполняемые скрипты действительно обучают или дообучают модель (`Trainer.train`, `.fit`, цикл обучения), есть задания fine-tuning или пользователь подтвердил происхождение своей модели. Имя `train*.py`, скачанные веса и зависимости `mlflow`/`wandb` сами по себе флаг не ставят. Они требуют проверки вызовов и происхождения весов.
 - `own_data`: датасеты `*.csv`, `*.parquet`, `*.jsonl` в `data/` или `datasets/`. Векторные БД (`chromadb`, `pinecone`, `qdrant`, `weaviate`, `pgvector`, `faiss`). Ноды Vector Store в n8n. База знаний для RAG.
 - `metrics`: eval-скрипты, `promptfoo`, `deepeval`, `ragas`, конфигурация A/B-тестов, запись метрик в таблицы или БД, ссылки на дашборды.
 - `api`: веб-фреймворки (`fastapi`, `flask`, `django`, `express`, `@nestjs/*`, `koa`, `hono`), файлы `openapi.*`, `swagger.*`, ноды Webhook в n8n, объявления роутов.
 - `end_users`: фронтенд (`react`, `vue`, `svelte`, `next`, шаблоны HTML), боты (`python-telegram-bot`, `aiogram`, `telegraf`, ноды Telegram, Slack, WhatsApp), n8n Form Trigger, Chat Trigger.
-- `deployed`: `Dockerfile`, `docker-compose*`, `.github/workflows/`, `.gitlab-ci.yml`, манифесты Kubernetes, `*.tf`, `vercel.json`, `netlify.toml`, `Procfile`, конфиги по окружениям (`*.prod.*`, `staging`). Также ставится по ответу пользователя, если он описывает несколько окружений или процесс деплоя. Ответ только о месте работы («self-hosted», «n8n Cloud», «через ngrok») флаг не ставит: эти сведения идут в `02-architecture.md` → «Компоненты» и `03-setup-and-run.md` → «Предусловия».
+- `deployed`: есть процесс публикации или конфигурация запуска сервиса: Compose с сервисом проекта, Kubernetes, Terraform с ресурсами проекта, конфиги Vercel/Netlify/Procfile или CI с шагом деплоя. Один Dockerfile или CI только с тестами — подсказка, флаг не ставится без проверки назначения. Также ставится по ответу пользователя о нескольких окружениях или процессе деплоя. Ответ только о месте работы («self-hosted», «n8n Cloud», «через ngrok») флаг не ставит: эти сведения идут в `02-architecture.md` → «Компоненты» и `03-setup-and-run.md` → «Предусловия».
 - `external_services`: переменные ключей в `.env.example`, ссылки на credentials в экспорте workflow, SDK внешних SaaS, вызовы HTTP API.
 - `product`: в проекте есть ТЗ, PRD, бриф или требования (файлы `*prd*`, `*тз*`, `requirements*.md`, `brief*`), либо пользователь в раунде вопросов дал требования шире, чем цель проекта.
 - `team`: в `git log` не меньше двух авторов, или есть `CODEOWNERS`.
@@ -44,5 +46,5 @@
 ## Сомнительные случаи
 
 - Признак найден только в примерах, тестах или архивных папках. Флаг не ставится, наблюдение выносится в вопрос.
-- `llm` без `own_model`: модель используется через API. Model Card не создаётся, создаётся Model Usage.
+- `llm` не определяет способ запуска: отдельно проверить `model_api` и `local_model`. Готовая локальная модель получает Model Usage; Model Card нужен только при `own_model`. Если своя модель и внешний API используются вместе, создаются оба документа.
 - Датасет-фикстура для тестов не даёт `own_data`.

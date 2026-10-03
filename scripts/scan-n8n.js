@@ -3,21 +3,20 @@
 // Запуск: node scan-n8n.js <корень проекта> [--code] [--no-sticky]
 //   --code       полный код нод Code (по умолчанию — первые строки)
 //   --no-sticky  без текста sticky-заметок
-// Печатает по каждому workflow: настройки, ноды в порядке выполнения, ветвления,
+// Печатает по каждому workflow: настройки, граф нод, ветвления,
 // промпты и параметры моделей, credentials, sticky-заметки.
 // Только читает файлы. Значения секретов маскируются.
 
 const fs = require('fs');
 const path = require('path');
-const { SECRET_FIELD, mask } = require('./lib/secrets');
+const { SECRET_FIELD, mask, maskValue } = require('./lib/secrets');
+const { walk } = require('./lib/project-files');
 
 const args = process.argv.slice(2);
 const withCode = args.includes('--code');
 const withSticky = !args.includes('--no-sticky');
 const root = path.resolve(args.find((a) => !a.startsWith('--')) || '.');
 
-const SKIP_DIRS = new Set(['node_modules', '.git', 'venv', '.venv', 'env', '__pycache__', 'dist', 'build', 'out',
-  'target', '.next', '.cache', 'coverage', 'vendor', 'project-docs']);
 const CODE_PREVIEW_LINES = 5;
 const TEXT_LIMIT = 300;
 
@@ -27,21 +26,16 @@ const clip = (s, n = TEXT_LIMIT) => { const t = mask(String(s)).replace(/\s+/g, 
 const full = (s) => mask(String(s));
 const indent = (s, pad) => s.split('\n').map((l) => pad + l).join('\n');
 
-function walk(dir) {
-  let out = [];
-  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (e.isDirectory()) { if (!SKIP_DIRS.has(e.name)) out = out.concat(walk(path.join(dir, e.name))); }
-    else if (e.name.toLowerCase().endsWith('.json')) out.push(path.join(dir, e.name));
-  }
-  return out;
-}
-
 function loadWorkflows() {
   const list = [];
-  for (const f of walk(root).sort()) {
+  for (const f of walk(root).filter((p) => p.toLowerCase().endsWith('.json'))) {
     let w;
     try { w = JSON.parse(fs.readFileSync(f, 'utf8')); } catch (e) { continue; }
-    if (w && Array.isArray(w.nodes) && w.connections && typeof w.connections === 'object') list.push({ file: f, w });
+    for (const item of Array.isArray(w) ? w : [w]) {
+      if (item && Array.isArray(item.nodes) && item.connections && typeof item.connections === 'object') {
+        list.push({ file: f, w: maskValue(item) });
+      }
+    }
   }
   return list;
 }
@@ -52,7 +46,9 @@ const rl = (v) => (v && typeof v === 'object' && '__rl' in v ? (v.cachedResultNa
 function conditionsText(conds) {
   const list = (conds && (conds.conditions || conds)) || [];
   if (!Array.isArray(list)) return '';
-  return list.map((c) => `${clip(c.leftValue, 120)} ${c.operator ? c.operator.operation : ''} ${c.rightValue !== undefined ? clip(c.rightValue, 80) : ''}`.trim()).join(' И ');
+  const combinator = conds && conds.combinator;
+  const separator = combinator === 'or' ? ' ИЛИ ' : combinator === 'and' || !combinator ? ' И ' : ` [неизвестный оператор ${clip(combinator)}] `;
+  return list.map((c) => `${clip(c.leftValue, 120)} ${c.operator ? c.operator.operation : ''} ${c.rightValue !== undefined ? clip(c.rightValue, 80) : ''}`.trim()).join(separator);
 }
 
 function outputLabels(node) {
@@ -109,7 +105,7 @@ function details(node, idToName) {
     d.push('\n' + indent(full(withCode ? code : lines.slice(0, CODE_PREVIEW_LINES).join('\n') + (lines.length > CODE_PREVIEW_LINES ? '\n…' : '')), '      | '));
   } else if (/\.set$/.test(t)) {
     const as = (p.assignments && p.assignments.assignments) || [];
-    if (as.length) d.push('поля: ' + as.map((a) => `${a.name}=${clip(a.value, 100)}`).join('; '));
+    if (as.length) d.push('поля: ' + as.map((a) => `${a.name}=${SECRET_FIELD.test(a.name) ? '<секрет скрыт>' : clip(a.value, 100)}`).join('; '));
   } else if (/telegram$/.test(t)) {
     d.push(`${p.resource || 'message'}/${p.operation || 'sendMessage'}`);
     if (p.chatId) d.push(`chatId: ${clip(p.chatId, 100)}`);
@@ -121,7 +117,7 @@ function details(node, idToName) {
   // Модели и промпты — полностью: это основной материал для Prompt Guide.
   const model = rl(p.model) || rl(p.modelId);
   if (model) d.push(`модель: ${model}`);
-  if (p.options && Object.keys(p.options).length && /lc\.|langchain/.test(t)) d.push('параметры: ' + JSON.stringify(p.options));
+  if (p.options && Object.keys(p.options).length && /lc\.|langchain/.test(t)) d.push('параметры: ' + full(JSON.stringify(maskValue(p.options))));
   const prompts = [];
   const msgs = (p.responses && p.responses.values) || (p.messages && (p.messages.values || p.messages.messageValues)) || [];
   msgs.forEach((m) => prompts.push([`сообщение ${m.role || 'user'}`, m.content || m.message || '']));
@@ -164,7 +160,7 @@ function describe({ file, w }, idToName) {
   const attachedNames = new Set(attached.map((a) => a.split(' → ')[0]));
   const starts = nodes.filter((n) => /trigger/i.test(n.type) || (!incoming.has(n.name) && !attachedNames.has(n.name)));
 
-  // Обход в ширину от триггеров: ноды в порядке выполнения, каждая один раз.
+  // Обход графа в ширину для чтения. Это не расписание выполнения n8n.
   const order = [];
   const seen = new Set();
   const queue = starts.map((n) => n.name);
@@ -178,7 +174,7 @@ function describe({ file, w }, idToName) {
   }
   nodes.filter((n) => !seen.has(n.name) && !attachedNames.has(n.name)).forEach((n) => order.push(n.name));
 
-  out.push('\nноды в порядке выполнения:');
+  out.push('\nноды (обход графа; фактический порядок зависит от ветвей, циклов и настроек n8n):');
   order.forEach((name, i) => {
     const n = byName[name];
     const d = details(n, idToName);
@@ -186,7 +182,7 @@ function describe({ file, w }, idToName) {
     const main = (w.connections[name] && w.connections[name].main) || [];
     const labels = outputLabels(n);
     main.forEach((arr, k) => {
-      const targets = (arr || []).map((x) => x.node);
+      const targets = (arr || []).map((x) => `${x.node} (вход ${x.index === undefined ? 0 : x.index})`);
       const label = labels[k] || (main.length > 1 ? `выход ${k}` : '');
       out.push(`   → ${label ? label + ': ' : ''}${targets.length ? targets.join(', ') : '(никуда)'}`);
     });
@@ -211,7 +207,7 @@ function describe({ file, w }, idToName) {
 
 const workflows = loadWorkflows();
 if (!workflows.length) {
-  console.log(`В ${root} экспортов n8n не найдено.`);
+  console.log(mask(`В ${root} экспортов n8n не найдено.`));
   process.exit(0);
 }
 const idToName = Object.fromEntries(workflows.filter(({ w }) => w.id).map(({ w }) => [w.id, w.name]));
@@ -220,6 +216,6 @@ console.log('\n| Файл | Имя | id | active | нод | триггеры |\n
 for (const { file, w } of workflows) {
   const nodes = w.nodes.filter((n) => n.type !== 'n8n-nodes-base.stickyNote');
   const triggers = nodes.filter((n) => /trigger/i.test(n.type)).map((n) => short(n.type)).join(', ');
-  console.log(`| ${rel(file)} | ${w.name} | ${w.id || '—'} | ${w.active} | ${nodes.length} | ${triggers || '—'} |`);
+  console.log(mask(`| ${rel(file)} | ${w.name} | ${w.id || '—'} | ${w.active} | ${nodes.length} | ${triggers || '—'} |`));
 }
-for (const wf of workflows) console.log(describe(wf, idToName));
+for (const wf of workflows) console.log(mask(describe(wf, idToName)));
